@@ -7,8 +7,18 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include <ncurses.h>
+#include <curses.h>
 
+#ifdef __unix__ /* __unix__ is usually defined by compilers targeting
+                   Unix systems */
+#define FILE_PREFIX "./"
+#elif defined _WIN32 /* _Win32 is usually defined by compilers
+                        targeting 32 or 64 bit Windows systems */
+#define FILE_PREFIX ""
+#endif
+
+#define true 1
+#define false 0
 #define min(X, Y)  ((X) < (Y) ? (X) : (Y))
 #define max(X, Y)  ((X) > (Y) ? (X) : (Y))
 
@@ -83,13 +93,14 @@ void draw_box(int x1, int y1, int x2, int y2) {
 
 struct game* fread_game(FILE *f) {
   int x, y, sx, sy, mines, seed;
-  if (3 != fscanf(f, "Minesweeper %dx%d grid with %d mines\n",
+  if (3 != fscanf(f, "Minesweeper %dx%d grid with %d mines",
                   &sx, &sy, &mines)) {
     err("minesweeper_curses: invalid game1.\n");
     exit_curses(1);
   }
   char **input = (char **) malloc(sizeof(char*)*sx);
   char **solution = (char **) malloc(sizeof(char*)*sx);
+  fgetc(f);
   for (x = 0; x < sx; x++) {
     input[x] = (char *) malloc(sizeof(char)*sy);
     solution[x] = (char *) malloc(sizeof(char)*sy);
@@ -101,10 +112,11 @@ struct game* fread_game(FILE *f) {
     fgetc(f);
   }
   fgetc(f);
-  if (1 != fscanf(f, "Solution encrypted with seed %d\n", &seed)) {
+  if (1 != fscanf(f, "Solution encrypted with seed %d", &seed)) {
     err("minesweeper_curses: invalid game2.\n");
     exit_curses(1);
   }
+  fgetc(f);
   for (y = 0; y < sy; y++) {
     for (x = 0; x < sx; x++) {
       solution[x][y] = fgetc(f);
@@ -232,10 +244,10 @@ void my_exec(char *prog, char *file) {
   if (suppress_warning);
 }
 void process_turn(char *file) {
-  my_exec("./minesweeper", file);
+  my_exec(FILE_PREFIX "minesweeper", file);
 }
 void solve(char *file) {
-  my_exec("./minesweeper_solver -m", file);
+  my_exec(FILE_PREFIX "minesweeper_solver -m", file);
 }
 void screenshot(char *file) {
   if (NULL == window_id) {
@@ -296,7 +308,7 @@ void print_board(struct game *game, int start_y, int start_x) {
 void print_ui(char *file, struct game *game, int yadd, int xadd) {
   erase();
   move(0, 0);
-  printw("Minesweeper - %s - %dx%d - %d mines", 
+  printw("Minesweeper - %s - %dx%d - %d mines - h: help", 
          file, game->x, game->y, game->mines);
 
   draw_box(xadd - 1, yadd - 1, game->x + xadd, game->y + yadd);

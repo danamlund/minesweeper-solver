@@ -1,0 +1,49 @@
+# ./minesweeper --help
+Usage: minesweeper [OPTION]... [FILE]
+Start a new minesweeper game to FILE or standard output
+(see -n), or process a turn in an existing minesweeper
+game from FILE or standard input.
+
+  -n         Start a new game.
+  -b INT     Start a new game using a predefined board:
+               0: 8x8 grid with 10 mines
+               1: 16x16 grid with 40 mines
+               2: 30x16 grid with 99 mines
+               3: 78x21 grid with 450 mines
+  -x INT     Set the width of the grid.
+  -y INT     Set the height of the grid.
+  -m INT     Set the number of mines.
+  -h, --help Show this help menu.
+  -v         More output.
+
+The FILE contains information about the game and provide an
+interface to the game. Only modify the file by overwriting
+characters in the first grid, the reader is sensitive(bad).
+
+Legend of the symbols in the grid:
+  .      A unknown tile
+  space  A tile with no bombs surrounding it
+  1-8    A tile surrounded by 1-8 mines
+  !      A tile designated by the user as a mine
+  ?      A tile designated by the user as not a mine,
+           running minesweeper processed these
+  *      A exploded mine. If you see any of these you
+           have lost
+
+Example: Playing a game of minesweeper
+  Start a new game called using file 'foo':
+    run 'minesweeper -n -b 1 foo.txt'
+  Play minesweeper:
+    1) Edit file foo.txt
+    2) Replace .'s with ?'s or !'s to mark tiles that are 
+       not mines and mines, respectively
+    3) Process your input by running 'minesweeper foo.txt'
+    4) Go to step 1)
+
+# ./minesweeper_curses --help
+Usage: minesweeper_curses FILE
+Start a curses user interface using the minesweeper
+game from FILE.
+
+  -h, --help   Show this help menu.
+  -w WINDOW-ID Set up recording using Imagemagick

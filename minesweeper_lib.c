@@ -192,18 +192,20 @@ struct game* load_game(FILE *f) {
   int x, y, mines, seed;
   struct board *input, *solution;
 
-  if (3 != fscanf(f, "Minesweeper %dx%d grid with %d mines\n",
+  if (3 != fscanf(f, "Minesweeper %dx%d grid with %d mines",
                   &x, &y, &mines)) {
     free(name);
     return NULL;
   }
+  fgetc(f);
   input = read_board(f, x, y);
 
-  if (1 != fscanf(f, "Solution encrypted with seed %d\n", &seed)) {
+  if (1 != fscanf(f, "Solution encrypted with seed %d", &seed)) {
     free(name);
     free_board(input);
     return NULL;
   }
+  fgetc(f);
   solution = read_board(f, x, y);
   decrypt_board(solution, seed);
 

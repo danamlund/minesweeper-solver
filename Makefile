@@ -1,3 +1,8 @@
+ifdef SystemRoot
+  CURSESLIB = pdcurses
+else
+  CURSESLIB = ncurses
+endif
 
 all: minesweeper minesweeper_solver minesweeper_curses
 
@@ -15,8 +20,8 @@ minesweeper_solver: minesweeper_lib.c minesweeper_solver.c
 minesweeper_curses: minesweeper_lib.c minesweeper_curses.c
 	gcc -Wall -O3 \
 	minesweeper_curses.c \
-	-lncurses \
+	-l$(CURSESLIB) \
 	-o minesweeper_curses
 
 clean:
-	rm minesweeper minesweeper_solver minesweeper_curses
+	rm -f minesweeper minesweeper_solver minesweeper_curses
