@@ -95,7 +95,7 @@ struct game* fread_game(FILE *f) {
   int x, y, sx, sy, mines, seed;
   if (3 != fscanf(f, "Minesweeper %dx%d grid with %d mines",
                   &sx, &sy, &mines)) {
-    err("minesweeper_curses: invalid game1.\n");
+    err("minesweeper_curses: invalid game.\n");
     exit_curses(1);
   }
   char **input = (char **) malloc(sizeof(char*)*sx);
@@ -113,7 +113,7 @@ struct game* fread_game(FILE *f) {
   }
   fgetc(f);
   if (1 != fscanf(f, "Solution encrypted with seed %d", &seed)) {
-    err("minesweeper_curses: invalid game2.\n");
+    err("minesweeper_curses: invalid game.\n");
     exit_curses(1);
   }
   fgetc(f);

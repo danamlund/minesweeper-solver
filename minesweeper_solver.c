@@ -379,7 +379,7 @@ void print_help() {
          "  Start a new game called foo using the 'minesweeper'\n"
          "    program.\n"
          "  Solve minesweeper:\n"
-         "    1) run 'minesweeper_solver minesweeper_foo.txt'\n"
+         "    1) run 'minesweeper_solver foo'\n"
          "    2) Process a turn by running 'minesweeper foo'\n"
          "    3) Go to step 1)\n"
          );
