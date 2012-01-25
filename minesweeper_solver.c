@@ -8,12 +8,21 @@
 #include <unistd.h>
 #include <time.h>
 #include <string.h>
+#include <limits.h>
+#include <float.h>
 
 /* #include <X11/Xlib.h> */
 /* #include <X11/Xutil.h> */
 
 #include "minesweeper_lib.h"
 
+#define SCORE_MUL_NOT_MINES 0.3
+#define SCORE_MUL_UNKNOWNS 0.1
+#define SCORE_MUL_MINES 0.3
+#define SCORE_MUL_CHANCE 2.5
+#define SCORE_MUL_PROPAGATE 1.0
+
+static int max_cluster_size = 15;
 static bool verbose = false;
 static bool fix_found_mines = false;
 
@@ -92,6 +101,249 @@ char propagate_board(struct board *board) {
   return have_changed_something ? OUT_CHANGED : OUT_NOT_CHANGED;
 }
 
+
+bool next_state(char *state, int unknowns_with_neighbors) {
+  int i;
+  for (i = unknowns_with_neighbors - 1; i >=0; i--) {
+    if (state[i] == TILE_NOT_MINE) {
+      state[i] = TILE_MINE;
+      return true;
+    } else {
+      state[i] = TILE_NOT_MINE;
+    }
+  }
+  
+  return false;
+}
+
+bool is_valid_tile(struct board *b, int x, int y) {
+  struct neighbor_it *it;
+  int mines = 0, unknowns = 0;
+  for(it = new_neighbor_it(b, x, y); next_neighbor_it(it);) {
+    switch (b->adj_mines[it->x][it->y]) {
+    case TILE_UNKNOWN:
+      unknowns++;
+      break;
+    case TILE_MINE:
+      mines++;
+      break;
+    }
+  }
+  free_neighbor_it(it);
+
+  return ! (mines > b->adj_mines[x][y] ||
+            (unknowns == 0 && mines != b->adj_mines[x][y]));
+}
+
+bool is_valid_state(char *state, int unknowns_with_neighbors, 
+                    int **xys, struct board *b) {
+  bool output = true;
+  struct board *c = copy_board(b);
+  int i, x, y;
+  for (i = 0; i < unknowns_with_neighbors; i++) {
+    x = xys[i][0];
+    y = xys[i][1];
+    c->adj_mines[x][y] = state[i];
+  }
+
+  struct board *valids = new_board(b->size_x, b->size_y);
+  struct neighbor_it *it;
+  for (i = 0; i < unknowns_with_neighbors; i++) {
+    x = xys[i][0];
+    y = xys[i][1];
+    for(it = new_neighbor_it(c, x, y); next_neighbor_it(it);) {
+      if (c->adj_mines[it->x][it->y] > 0 
+          && valids->adj_mines[it->x][it->y] != 8) {
+        valids->adj_mines[it->x][it->y] = 8;
+        if (!is_valid_tile(c, it->x, it->y)) {
+          output = false;
+          break;
+        }
+      }
+    }
+    free_neighbor_it(it);
+    if (!output)
+      break;
+  }
+  free_board(c);
+  free_board(valids);
+
+  return output;
+}
+
+char constraint_satisfaction(struct board *b) {
+  int **clusters = (int **) malloc(sizeof(int*)*b->size_x);
+  int x, y;
+  for (x = 0; x < b->size_x; x++) {
+    clusters[x] = (int *) malloc(sizeof(int)*b->size_y);
+    for (y = 0; y < b->size_y; y++) {
+      clusters[x][y] = -1;
+    }
+  }
+
+  struct neighbor_it *it;
+  int cluster_id = 0;
+  int cluster_cur;
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (y = 0; y < b->size_y; y++) {
+      for (x = 0; x < b->size_x; x++) {
+        if (b->adj_mines[x][y] < 1)
+          continue;
+        cluster_cur = INT_MAX;
+        for(it = new_neighbor_it(b, x, y); next_neighbor_it(it);) {
+          if (clusters[it->x][it->y] != -1) {
+            cluster_cur = min(cluster_cur, clusters[it->x][it->y]);
+          }
+        }
+        free_neighbor_it(it);
+        if (cluster_cur == INT_MAX) {
+          cluster_cur = cluster_id;
+          cluster_id++;
+        }
+        for(it = new_neighbor_it(b, x, y); next_neighbor_it(it);) {
+          if (b->adj_mines[it->x][it->y] == TILE_UNKNOWN &&
+              clusters[it->x][it->y] != cluster_cur) {
+            clusters[it->x][it->y] = cluster_cur;
+            changed = true;
+          }
+        }
+        free_neighbor_it(it);
+      }
+    }
+  }
+
+  bool board_changed = false;
+  while (true) {
+    /* Find next cluster and count size of it */
+    int cluster_size = 0;
+    cluster_cur = -1;
+    for (y = 0; y < b->size_y; y++) {
+      for (x = 0; x < b->size_x; x++) {
+        if (clusters[x][y] != -1 && cluster_cur == -1) {
+          cluster_cur = clusters[x][y];
+        }
+        if (clusters[x][y] == -1 || clusters[x][y] != cluster_cur) {
+          continue;
+        }
+        cluster_size++;
+      }
+    }
+    if (cluster_cur == -1) {
+      break;
+    }
+
+    /* Verify cluster is valid (neighbors more than 1 known tile) */
+    struct board *verify = new_board(b->size_x, b->size_y);
+    int neighbors = 0;
+    for (y = 0; y < b->size_y; y++) {
+      for (x = 0; x < b->size_x; x++) {
+        if (clusters[x][y] != cluster_cur)
+          continue;
+        for(it = new_neighbor_it(b, x, y); next_neighbor_it(it);) {
+          if (b->adj_mines[it->x][it->y] > 0 &&
+              verify->adj_mines[it->x][it->y] != 8) {
+            verify->adj_mines[it->x][it->y] = 8;
+            neighbors++;
+            if (neighbors >= 2) break;
+          }
+        }
+        free_neighbor_it(it);
+        if (neighbors >= 2) break;
+      }
+    }
+
+    if (cluster_size > max_cluster_size || neighbors < 2) {
+      if (cluster_size > max_cluster_size && verbose) {
+        fprintf(stderr, "Skipping constraining because cluster is too big"
+                " (%d > %d)\n", cluster_size, max_cluster_size);
+      }
+      for (y = 0; y < b->size_y; y++) {
+        for (x = 0; x < b->size_x; x++) {
+          if (clusters[x][y] == cluster_cur) {
+            clusters[x][y] = -1;
+          }
+        }
+      }
+      continue;
+    } else {
+      if (verbose)
+        fprintf(stderr, "Constraining cluster size %d.\n", cluster_size);
+    }
+
+    /* Initialize cluster variables */
+    int **xys = (int**) malloc(sizeof(int)*cluster_size);
+    char *common = (char*) malloc(sizeof(char)*cluster_size);
+    char *state = (char*) malloc(sizeof(char)*cluster_size);
+    int i;
+    for (i = 0; i < cluster_size; i++) {
+      xys[i] = (int*) malloc(sizeof(int)*2);
+      xys[i][0] = xys[i][1] = -1;
+      state[i] = TILE_NOT_MINE;
+      common[i] = TILE_UNKNOWN;
+    }
+
+    /* Populate cluster coordinates */
+    i = 0;
+    for (y = 0; y < b->size_y; y++) {
+      for (x = 0; x < b->size_x; x++) {
+        if (clusters[x][y] != cluster_cur) {
+          continue;
+        }
+        xys[i][0] = x;
+        xys[i][1] = y;
+        i++;
+      }
+    }
+
+    /* Find tiles set to the same for all valid states  */
+    bool first_valid = true;
+    do {
+      if (is_valid_state(state, cluster_size, xys, b)) {
+        for (i = 0; i < cluster_size; i++) {
+          if (first_valid) {
+            common[i] = state[i];
+          } else {
+            if (state[i] != common[i]) {
+              common[i] = TILE_UNKNOWN;
+            }
+          }
+        }
+        first_valid = false;
+      }
+    } while (next_state(state, cluster_size));
+
+    /* Update board with information */
+    for (i = 0; i < cluster_size; i++) {
+      x = xys[i][0];
+      y = xys[i][1];
+      clusters[x][y] = -1;
+      if (common[i] != TILE_UNKNOWN) {
+        board_changed = true;
+        b->adj_mines[x][y] = common[i];
+        if (verbose)
+          fprintf(stderr, "Constrained (%d, %d) to being %s.\n", x, y,
+                  common[i] == TILE_MINE ? "a mine" : "not a mine");
+      }
+    }
+
+    /* free stuff */
+    for (i = 0; i < cluster_size; i++) {
+      free(xys[i]);
+    }
+    free(xys);
+    free(state);
+    free(common);
+  }
+  for (x = 0; x < b->size_x; x++) {
+    free(clusters[x]);
+  }
+  free(clusters);
+
+  return board_changed ? OUT_CHANGED : OUT_NOT_CHANGED;
+}
+
 char solve_board(struct board *board) {
   struct board *copy;
   bool have_changed_something = false;
@@ -144,9 +396,11 @@ char solve_board(struct board *board) {
         copy->adj_mines[x][y] = TILE_MINE;
         if (OUT_INVALID == propagate_board(copy)) {
           board->adj_mines[x][y] = TILE_NOT_MINE;
-          changed = true;
           if (verbose)
             fprintf(stderr, "No mine at (%d,%d)\n", x, y);
+          if (OUT_CHANGED == propagate_board(board) && verbose)
+            fprintf(stderr, "Propagate changed board\n");
+          changed = true;
           continue;
         }
         free_board(copy);
@@ -155,15 +409,25 @@ char solve_board(struct board *board) {
         copy->adj_mines[x][y] = TILE_NOT_MINE;
         if (OUT_INVALID == propagate_board(copy)) {
           board->adj_mines[x][y] = TILE_MINE;
-          changed = true;
           if (verbose)
             fprintf(stderr, "Mine at (%d,%d)\n", x, y);
+          if (OUT_CHANGED == propagate_board(board) && verbose)
+            fprintf(stderr, "Propagate changed board\n");
+          changed = true;
         }
         free_board(copy);
       }
     }
-    if (changed)
+    if (changed) {
       have_changed_something = true;
+      continue;
+    }
+
+    output = constraint_satisfaction(board);
+    if (output == OUT_CHANGED) {
+      have_changed_something = true;
+      changed = true;
+    }
   }
 
   return have_changed_something ? OUT_CHANGED : OUT_NOT_CHANGED;
@@ -309,54 +573,92 @@ bool guess_board(struct game *game) {
     return false;
   }
 
+  float score_not_mines, score_unknowns, score_mines;
+  float score_chance, score_propagate, best_score;
+
+  int best_not_mines, best_unknowns, best_mines,
+    best_propagate;
+  float best_chance = -1.0;
+
   int bestx, besty;
-  int best_known_neighbours = 0;
-  float best_hit_chance, new_hit_chance;
-  int unknowns, mines, known_neighbours;
+  float main_hit_chance, main_score;
+  int main_not_mines, main_unknowns, main_mines;
+  int unknowns, mines;
   srand((unsigned int) time(NULL));
   do {
     bestx = rand() % b->size_x;
     besty = rand() % b->size_y;
   } while (b->adj_mines[bestx][besty] != TILE_UNKNOWN);
-  best_hit_chance = (game->mines - all_mines) / all_unknowns;
-  best_hit_chance = max(0.3, best_hit_chance);
+  best_score = FLT_MIN;
   struct neighbor_it *it, *it2;
   for (x = 0; x < b->size_x; x++) {
     for (y = 0; y < b->size_y; y++) {
-      if (b->adj_mines[x][y] == TILE_UNKNOWN) {
-        known_neighbours = 0;
-        new_hit_chance = 0;
-        for(it = new_neighbor_it(b, x, y); next_neighbor_it(it);) {
-          if (b->adj_mines[it->x][it->y] >= 0) {
-            known_neighbours++;
-            unknowns = mines = 0;
-            for(it2 = new_neighbor_it(b, it->x, it->y); next_neighbor_it(it2);) {
-              switch (b->adj_mines[it2->x][it2->y]) {
-              case TILE_UNKNOWN: unknowns++; break;
-              case TILE_MINE: mines++; break;
-              }
+      if (b->adj_mines[x][y] != TILE_UNKNOWN) {
+        continue;
+      }
+      main_not_mines = 0;
+      main_unknowns = 0;
+      main_mines = 0;
+      main_hit_chance = 1 - ((float) (game->mines - all_mines) / all_unknowns);
+      for(it = new_neighbor_it(b, x, y); next_neighbor_it(it);) {
+        switch (b->adj_mines[it->x][it->y]) {
+        case TILE_UNKNOWN: 
+          main_unknowns++;
+          break;
+        case TILE_MINE:
+          main_mines++;
+          break;
+        }
+        if (b->adj_mines[it->x][it->y] >= 0) {
+          main_not_mines++;
+          unknowns = mines = 0;
+          for(it2 = new_neighbor_it(b, it->x, it->y); next_neighbor_it(it2);) {
+            switch (b->adj_mines[it2->x][it2->y]) {
+            case TILE_UNKNOWN: unknowns++; break;
+            case TILE_MINE: mines++; break;
             }
-            free_neighbor_it(it2);
-            new_hit_chance = max(new_hit_chance,
-                                 (float) (b->adj_mines[it->x][it->y] - mines) 
-                                 / unknowns);
           }
+          free_neighbor_it(it2);
+          main_hit_chance = min(main_hit_chance,
+                                1 - ((float) (b->adj_mines[it->x][it->y] - mines) 
+                                     / unknowns));
         }
-        if (known_neighbours > 0 &&
-            (new_hit_chance < best_hit_chance ||
-             (new_hit_chance == best_hit_chance &&
-              known_neighbours > best_known_neighbours))) {
-            bestx = x;
-            besty = y;
-            best_hit_chance = new_hit_chance;
-            best_known_neighbours = known_neighbours;          
-        }
+      }
+      score_not_mines = (float) main_not_mines / 8;
+      score_unknowns = (float) main_unknowns / 8;
+      score_mines = (float) main_mines / 8;
+      score_chance = main_hit_chance;
+      struct board *temp = copy_board(game->input);
+      temp->adj_mines[x][y] = TILE_NOT_MINE;
+      score_propagate = propagate_board(temp) == OUT_CHANGED ? 1.0 : 0.0;
+      free_board(temp);
+
+      main_score = (score_not_mines * SCORE_MUL_NOT_MINES +
+                    score_unknowns * SCORE_MUL_UNKNOWNS +
+                    score_mines * SCORE_MUL_MINES +
+                    score_chance * SCORE_MUL_CHANCE +
+                    score_propagate * SCORE_MUL_PROPAGATE);
+
+      if (main_score > best_score) {
+        bestx = x;
+        besty = y;
+        best_score = main_score;
+        best_not_mines = main_not_mines;
+        best_unknowns = main_unknowns;
+        best_mines = main_mines;
+        best_chance = main_hit_chance;
+        best_propagate = (int) score_propagate;
       }
     }
   }
-  if (verbose)
-    fprintf(stderr, "Guessed (%d,%d) is not a mine (%.2f%%).\n",
-            bestx, besty, best_hit_chance);
+  if (verbose) {
+    fprintf(stderr, "Guessed (%d,%d) is not a mine (score: %.2f).\n",
+            bestx, besty, best_score);
+    fprintf(stderr, "not mines=%d  mines=%d  unknowns=%d  propagate=%d  "
+            "chance=%.2f\n",
+            best_not_mines, best_mines, best_unknowns, best_propagate,
+            best_chance);
+  }
   b->adj_mines[bestx][besty] = TILE_NOT_MINE;
   return true;
 }
@@ -369,8 +671,9 @@ void print_help() {
          "or not-mines (?).\n"
          "\n"
          "  -h, --help  Show this help menu\n"
-         "  -v          Print changes\n"
+         "  -v          Verbose output (to stderr)\n"
          "  -m          Replace explosions (*) with mines (!)\n"
+         "  -c INT      Set new cluster size limit (default is %d)\n"
          "\n"
          "The game modifies a interface file generated by\n"
          "'minesweeper'.\n"
@@ -381,19 +684,19 @@ void print_help() {
          "  Solve minesweeper:\n"
          "    1) run 'minesweeper_solver foo'\n"
          "    2) Process a turn by running 'minesweeper foo'\n"
-         "    3) Go to step 1)\n"
+         "    3) Go to step 1)\n",
+         max_cluster_size
          );
 }
 
 int solve(int argc, char** args) {
   struct game *game;
-  char out;
 
   if (argc > 1 &&
       (0 == strcmp("-h", args[1]) ||
        0 == strcmp("--help", args[1]))) {
     print_help();
-    exit(0);
+    return 0;
   }
 
   int i = 1;
@@ -403,7 +706,8 @@ int solve(int argc, char** args) {
       switch (args[i][1]) {
       case 'v': verbose = true; break;
       case 'm': fix_found_mines = true; break;
-      default: fprintf(stderr, "Unknown argument '%s'\n", args[i]); exit(1);
+      case 'c': max_cluster_size = atoi(args[i+1]); i++; break;
+      default: fprintf(stderr, "Unknown argument '%s'\n", args[i]); return 1;
       }
     } else {
       file = args[i];
@@ -421,19 +725,30 @@ int solve(int argc, char** args) {
 
   if (NULL == game) {
     fprintf(stderr, "minesweeper_solver: invalid game.\n");
-    exit(1);
+    return 1;
   }
 
-  out = solve_board(game->input);
-  if (OUT_INVALID == out) {
+  bool board_changed = false;
+
+  char out = solve_board(game->input);
+  switch (out) {
+  case OUT_INVALID:
     if (verbose)
       fprintf(stderr, "Board can't be solved.\n");
-  } else if (OUT_NOT_CHANGED == out) {
-    if (!guess_board(game)) {
-      if (verbose)
-        fprintf(stderr, "Nothing to do.\n");
-      exit(0);
-    }
+    return 0;
+    break;
+  case OUT_CHANGED:
+    board_changed = true;
+    break;
+  }
+
+  if (!board_changed) {
+    board_changed = guess_board(game);
+  }
+
+  if (!board_changed && verbose) {
+    fprintf(stderr, "Nothing to do.\n");
+    return 0;
   }
 
   if (NULL == file || 0 == strcmp(file, "-")) {

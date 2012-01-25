@@ -67,4 +67,6 @@ void decrypt_board(struct board *b, int seed);
 struct game* load_game(FILE *f);
 void save_game(struct game *game, FILE *f);
 
+bool file_exists(char *file);
+
 #endif /* !MINESWEEPER_LIB_H_ */

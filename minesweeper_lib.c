@@ -231,3 +231,12 @@ void save_game(struct game *game, FILE *f) {
   write_board(solution, f);
   free_board(solution);
 }
+
+bool file_exists(char *file) {
+  FILE *f = fopen(file, "r");
+  if (f != NULL) {
+    fclose(f);
+    return true;
+  }
+  return false;
+}

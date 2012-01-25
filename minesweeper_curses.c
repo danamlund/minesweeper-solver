@@ -37,6 +37,10 @@
 static char *window_id = NULL;
 static int screenshot_id = 0;
 
+static char *file_minesweeper = FILE_PREFIX "minesweeper";
+static char *file_minesweeper_solver = FILE_PREFIX "minesweeper_solver -m";
+static char *file_suffix = "";
+
 struct game {
   int x, y, mines;
   char **input;
@@ -237,17 +241,17 @@ void save_char_board(char **b, int size_x, int size_y, char *filename) {
   fclose(f);
 }
 
-void my_exec(char *prog, char *file) {
-  char cmd[100];
-  sprintf(cmd, "%s %s", prog, file);
+void my_exec(char *prog, char *file, char *suffix) {
+  char cmd[1024];
+  sprintf(cmd, "%s %s %s", prog, file, suffix);
   int suppress_warning = system(cmd);
   if (suppress_warning);
 }
 void process_turn(char *file) {
-  my_exec(FILE_PREFIX "minesweeper", file);
+  my_exec(file_minesweeper, file, file_suffix);
 }
 void solve(char *file) {
-  my_exec(FILE_PREFIX "minesweeper_solver -m", file);
+  my_exec(file_minesweeper_solver, file, file_suffix);
 }
 void screenshot(char *file) {
   if (NULL == window_id) {
@@ -266,7 +270,7 @@ void show_help() {
   printw("\n"
          "\n"
          "\n"
-         "  Keys:\n"
+         "             =======  Keys  =======\n"
          "                       q: quit\n"
          "              Arrow keys: move cursor\n"
          "    Home/End/PgUp/PgDown: move cursor to edges\n"
@@ -276,6 +280,10 @@ void show_help() {
          "                       s: Solve one turn\n"
          "                       w: Have solver fill out tiles\n"
          "                       e: Process solver's filled out tiles\n"
+         "                       0: Start a new easy game\n"
+         "                       1: Start a new normal game\n"
+         "                       2: Start a new expert game\n"
+         "                       3: Start a new insane game\n"
          "                       h: Show help\n"
          );
   refresh();
@@ -317,10 +325,14 @@ void print_ui(char *file, struct game *game, int yadd, int xadd) {
   refresh();
 }
 
+void start_new_game(char *file, int type) {
+  char args[100];
+  sprintf(args, "-n -b %d", type);
+  my_exec(file_minesweeper, file, args);
+}
+
 void game(char* file) {
-  printf("1\n");
   struct game *game = read_game(file);
-  printf("2\n");
 
   int x = game->x/2;
   int y = game->y/2;
@@ -415,6 +427,18 @@ void game(char* file) {
       refresh();
       break;
     case 'q': run = 0; break;
+    case '0': case '1': case '2': case '3':
+      start_new_game(file, c - '0');
+      free_game(game);
+      game = read_game(file);
+
+      x = game->x/2;
+      y = game->y/2;
+
+      print_ui(file, game, yadd, xadd);
+      print_board(game, yadd, xadd);
+      board_changed = true;
+      break;
     case 'h': 
       show_help(); 
       print_ui(file, game, yadd, xadd);
@@ -432,23 +456,32 @@ void game(char* file) {
   }
 }
 
+bool file_exists(char *file) {
+  FILE *f = fopen(file, "r");
+  if (f != NULL) {
+    fclose(f);
+    return true;
+  }
+  return false;
+}
+
 void print_help() {
-  printf("Usage: minesweeper_curses FILE\n"
+  printf("Usage: minesweeper_curses [FILE]\n"
          "Start a curses user interface using the minesweeper\n"
-         "game from FILE.\n"
+         "game from FILE or game.txt by default.\n"
          "\n"
          "  -h, --help   Show this help menu.\n"
-         "  -w WINDOW-ID Set up recording using Imagemagick\n");
+         "  -w WINDOW-ID Set up recording using Imagemagick\n"
+         "  -m 'CMD'     Use CMD instead of './minesweeper'\n"
+         "  -s 'CMD'     Use CMD instead of './minesweeper_solver -m'\n"
+         "  -a 'ARGS'    Append ARGS when running './minesweeper'\n"
+         "                 and './minesweeper_solver'\n");
 }
 
 int run(int argc, char **args) {
-  if (argc < 2) {
-    print_help();
-    return 0;
-  }
-
-  if (0 == strcmp("-h", args[1]) ||
-      0 == strcmp("--help", args[1])) {
+  if (argc > 1 &&
+      (0 == strcmp("-h", args[1]) ||
+       0 == strcmp("--help", args[1]))) {
     print_help();
     return 0;
   }
@@ -462,6 +495,18 @@ int run(int argc, char **args) {
         window_id = args[i+1];
         i++;
         break;
+      case 'm':
+        file_minesweeper = args[i+1];
+        i++;
+        break;
+      case 's':
+        file_minesweeper_solver = args[i+1];
+        i++;
+        break;
+      case 'a':
+        file_suffix = args[i+1];
+        i++;
+        break;
       default:
         printf("minesweeper_curses: unknown argument: '-%c'\n", args[i][1]);
         return 1;
@@ -471,9 +516,17 @@ int run(int argc, char **args) {
     }
   }
 
+  printf("1\n");
+  if (NULL != file && !file_exists(file)) {
+    printf("minesweeper_curses: File '%s' doesn't exists.\n", file);
+    return 1;
+  }
+
   if (NULL == file) {
-    print_help();
-    return 0;
+    file = "game.txt";
+    if (!file_exists(file)) {
+      start_new_game(file, 1);
+    }
   }
 
   init_curses();

@@ -2,9 +2,9 @@ A minesweeper solver and game.
 
 Download binaries at http://danamlund.dk/minesweeper_solver
 
-I have successfully compiled this in Ubuntu 11.04 (with ncurses) and
-in MinGW (with pdcurses). The Makefile and source checks and adjusts
-itself depending on system.
+I have successfully compiled this using Ubuntu 11.04 (with ncurses)
+and using MinGW (with pdcurses). The Makefile and source checks and
+adjusts itself depending on which system you use.
 
 Below is the "--help" output from the programs in this repository:
 
@@ -41,7 +41,7 @@ Legend of the symbols in the grid:
            have lost
 
 Example: Playing a game of minesweeper
-  Start a new game called using file 'foo':
+  Start a new game called using file 'foo.txt':
     run 'minesweeper -n -b 1 foo.txt'
   Play minesweeper:
     1) Edit file foo.txt

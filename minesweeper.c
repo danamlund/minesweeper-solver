@@ -78,7 +78,37 @@ char process_input(struct board* solution, struct board* input) {
   return output;
 }
 
-void start_new_game(char *name, int x, int y, int mines) {
+void fair_game(struct game *game) {
+  bool fair = false;
+  struct neighbor_it *it;
+  int first_0_x = -1, first_0_y = -1;
+  int x, y;
+  for (y = 0; y < game->y; y++) {
+    for (x = 0; x < game->x; x++) {
+      if (game->solution->adj_mines[x][y] == 0) {
+        first_0_x = x;
+        first_0_y = y;
+        for(it = new_neighbor_it(game->solution, x, y); 
+            next_neighbor_it(it);) {
+          if (game->solution->adj_mines[it->x][it->y] == 0) {
+            fair = true;
+            game->input->adj_mines[x][y] = TILE_NOT_MINE;
+            break;
+          }
+        }
+        free_neighbor_it(it);
+        if (fair) break;
+      }
+    }
+    if (fair) break;
+  }
+  if (!fair && first_0_x != -1) {
+    game->input->adj_mines[first_0_x][first_0_y] = TILE_NOT_MINE;
+  }
+  process_input(game->solution, game->input);
+}
+
+void start_new_game(char *name, int x, int y, int mines, bool fair) {
   struct game *game = new_game();;
 
   game->x = x;
@@ -95,7 +125,11 @@ void start_new_game(char *name, int x, int y, int mines) {
       game->input->adj_mines[xx][yy] = TILE_UNKNOWN;
     }
   }
-  
+
+  if (fair) {
+    fair_game(game);
+  }
+
   FILE *f;
   if (NULL == name || 0 == strcmp(name, "-")) {
     f = stdout;
@@ -104,6 +138,31 @@ void start_new_game(char *name, int x, int y, int mines) {
   }
   save_game(game, f);
   fclose(f);
+}
+
+bool game_won(struct game *game) {
+  int x, y;
+  for (x = 0; x < game->x; x++) {
+    for (y = 0; y < game->y; y++) {
+      if (game->solution->adj_mines[x][y] == TILE_MINE &&
+          game->solution->adj_mines[x][y] !=
+          game->input->adj_mines[x][y])
+        return false;
+    }
+  }
+  return true;
+}
+
+bool game_has_bad_mine(struct game *game) {
+  int x, y;
+  for (x = 0; x < game->x; x++) {
+    for (y = 0; y < game->y; y++) {
+      if (game->input->adj_mines[x][y] == TILE_MINE &&
+          game->solution->adj_mines[x][y] != TILE_MINE)
+        return true;
+    }
+  }
+  return false;
 }
 
 void process_game(char *file) {
@@ -122,7 +181,12 @@ void process_game(char *file) {
     fprintf(stderr, "minesweeper: invalid game.\n");
     exit(1);
   }
-  
+
+  if (game_has_bad_mine(game)) {
+    if (verbose) fprintf(stderr, "Game has incorrectly marked mine!\n");
+    exit(0);
+  }
+
   int output;
   output = process_input(game->solution, game->input);
 
@@ -133,6 +197,11 @@ void process_game(char *file) {
   }
   save_game(game, f);
   fclose(f);
+
+  if (game_won(game)) {
+    if (verbose) fprintf(stderr, "Game won!\n");
+    exit(0);
+  }
 
   switch (output) {
   case OUT_INVALID: 
@@ -153,7 +222,8 @@ void print_help() {
          "game from FILE or standard input.\n"
          "\n"
          "  -n         Start a new game.\n"
-         "  -b INT     Start a new game using a predefined board:\n"
+         "  -f         Start the new game fairly (reveal a hole)\n"
+         "  -b INT     Start the new game using a predefined board:\n"
          "               0: 8x8 grid with 10 mines\n"
          "               1: 16x16 grid with 40 mines\n"
          "               2: 30x16 grid with 99 mines\n"
@@ -162,7 +232,7 @@ void print_help() {
          "  -y INT     Set the height of the grid.\n"
          "  -m INT     Set the number of mines.\n"
          "  -h, --help Show this help menu.\n"
-         "  -v         More output.\n"
+         "  -v         Verbose output (to stderr).\n"
          "\n"
          "The FILE contains information about the game and provide an\n"
          "interface to the game. Only modify the file by overwriting\n"
@@ -194,6 +264,7 @@ void print_help() {
 int game(int argc, char** args) {
   char *file = NULL;
   bool newgame = false;
+  bool fair = false;
   int x = 0, y = 0, mines = 0, b = 0;
 
   int i = 1;
@@ -211,6 +282,7 @@ int game(int argc, char** args) {
       case 'm': mines = atoi(args[i+1]); i++; break;
       case 'b': b = atoi(args[i+1]); i++; break;
       case 'v': verbose = true; break;
+      case 'f': fair = true; break;
       default: fprintf(stderr, "Unknown argument '%s'\n", args[i]); exit(1);
       }
     } else {
@@ -233,7 +305,7 @@ int game(int argc, char** args) {
     if (y) gy = y;
     if (mines) gmines = mines;
 
-    start_new_game(file, gx, gy, gmines);
+    start_new_game(file, gx, gy, gmines, fair);
   } else {
     process_game(file);
   }
