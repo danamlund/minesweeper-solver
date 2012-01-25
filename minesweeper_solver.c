@@ -576,8 +576,8 @@ bool guess_board(struct game *game) {
   float score_not_mines, score_unknowns, score_mines;
   float score_chance, score_propagate, best_score;
 
-  int best_not_mines, best_unknowns, best_mines,
-    best_propagate;
+  int best_not_mines = 0, best_unknowns = 0, best_mines = 0,
+    best_propagate = 0;
   float best_chance = -1.0;
 
   int bestx, besty;

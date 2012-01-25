@@ -341,6 +341,10 @@ void game(char* file) {
   int xadd = 1, yadd = 2;
   char board_changed = false;
 
+  if (NULL != window_id) {
+    yadd = 1;
+  }
+
   print_ui(file, game, yadd, xadd);
   while (run) {
     c = getch();
